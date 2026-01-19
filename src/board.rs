@@ -1,0 +1,439 @@
+use std::collections::HashMap;
+
+#[derive(Copy, Clone)]
+pub enum Side {
+    White,
+    Black
+}
+
+impl Side {
+    pub fn other(&self) -> Side {
+        match self {
+            Side::White => Side::Black,
+            Side::Black => Side::White,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Hash, PartialEq)]
+pub enum Piece {
+    Pawn,
+    Rook,
+    Knight,
+    Bishop,
+    Queen,
+    King,
+}
+
+impl Piece {
+    fn alg(&self) -> &'static str {
+        match self {
+            Self::Pawn   => "",
+            Self::Rook   => "R",
+            Self::Knight => "N",
+            Self::Bishop => "B",
+            Self::Queen  => "Q",
+            Self::King   => "K",
+        }
+    }
+
+    fn iter() -> [Piece;6] {
+        [
+            Piece::Pawn,
+            Piece::Rook,
+            Piece::Knight,
+            Piece::Bishop,
+            Piece::Queen,
+            Piece::King,
+        ]
+    }
+}
+
+impl std::cmp::Eq for Piece {
+}
+
+#[derive(Copy, Clone, Hash, PartialEq)]
+struct Position {
+    index: u8
+}
+
+impl std::cmp::Eq for Position {
+}
+
+impl Position {
+    fn bb(&self) -> u64 {
+        1u64 << self.index
+    }
+
+    fn rank(&self) -> usize {
+        (self.index as usize / 8) + 1
+    }
+
+    fn file(&self) -> char {
+        ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'][(self.index % 8) as usize]
+    }
+}
+
+pub struct Board {
+    pub sets: [[u64; 6]; 2]
+}
+
+trait Bitboard {
+    fn remove_piece(&mut self, p: Position);
+    fn add_piece(&mut self, p: Position);
+}
+
+impl Bitboard for u64 {
+    fn remove_piece(&mut self, p: Position) {
+        assert!((*self & p.bb()) != 0);
+        *self &= !p.bb();
+    }
+
+    fn add_piece(&mut self, p: Position) {
+        assert!((*self & p.bb()) == 0);
+        *self |= p.bb();
+    }
+}
+
+trait Set {
+    fn occupied(&self) -> u64;
+}
+
+impl Set for [u64;6] {
+    fn occupied(&self) -> u64 {
+        self.iter().copied().fold(0, |acc, x| acc | x)
+    }
+}
+
+impl std::ops::Index<Piece> for [u64;6] {
+    type Output = u64;
+
+    fn index(&self, i: Piece) -> &Self::Output {
+        &self[i as usize]
+    }
+}
+
+impl std::ops::IndexMut<Piece> for [u64;6] {
+    fn index_mut(&mut self, i: Piece) -> &mut u64 {
+        &mut self[i as usize]
+    }
+}
+
+impl std::ops::Index<Side> for [[u64;6]; 2] {
+    type Output = [u64;6];
+
+    fn index(&self, i: Side) -> &Self::Output {
+        &self[i as usize]
+    }
+}
+
+impl std::ops::IndexMut<Side> for [[u64;6]; 2] {
+    fn index_mut(&mut self, i: Side) -> &mut [u64;6] {
+        &mut self[i as usize]
+    }
+}
+
+pub const FILE_A: u64 = 0x0101010101010101;
+pub const FILE_H: u64 = 0x8080808080808080;
+pub const RANK_3: u64 = 0x0000000000ff0000;
+pub const RANK_6: u64 = 0x0000ff0000000000;
+pub const RANK_1: u64 = 0x00000000000000ff;
+pub const RANK_8: u64 = 0xff00000000000000;
+
+pub const MOVE_FLAG_DOUBLE_PUSH: u16 = 0b00000001;
+
+#[derive(Copy, Clone)]
+pub struct Move {
+    from: Position,
+    to: Position,
+    piece: Piece,
+    flags: u16,
+    promotion: Option<Piece>,
+}
+
+impl Move {
+    fn is_double_push(&self) -> bool {
+        (self.flags & MOVE_FLAG_DOUBLE_PUSH) != 0
+    }
+}
+
+fn iter_bb<F: FnMut(Position)>(mut bb: u64, mut f: F) {
+    while bb > 0 {
+        let i = Position {index:bb.trailing_zeros() as _ };
+        f(i);
+        bb &= bb - 1;
+    }
+}
+
+impl Board {
+    pub fn new() -> Self {
+        Self {
+            sets: [
+                [
+                    0x000000000000ff00,
+                    0x0000000000000081,
+                    0x0000000000000042,
+                    0x0000000000000024,
+                    0x0000000000000008,
+                    0x0000000000000010,
+                ],
+                [
+                    0x00ff000000000000,
+                    0x8100000000000000,
+                    0x4200000000000000,
+                    0x2400000000000000,
+                    0x0800000000000000,
+                    0x1000000000000000,
+                ]
+            ]
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.sets = [[0;_];_];
+    }
+
+    fn fill_chars(&self, chars: &mut [char;64], bb: u64, which: char) {
+        for i in 0..64 {
+            if ((bb >> i) & 1) != 0 {
+                chars[i] = which;
+            }
+        }
+    }
+
+    fn piece_at(&self, pos: Position) -> Option<Piece> {
+        for set in &self.sets {
+            for p in Piece::iter() {
+                if (set[p] & pos.bb()) != 0 {
+                    return Some(p);
+                }
+            }
+        }
+
+        None
+    }
+
+    pub fn check_integrity(&self) -> Result<(), &'static str> {
+        let mut seen = 0u64;
+
+        let mut check = |x:u64| {
+            if (seen & x) != 0 {
+                Err("bit boards clash")
+            }
+            else {
+                seen |= x;
+                Ok(())
+            }
+        };
+
+        for set in self.sets {
+            for bb in set {
+                check(bb)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn dump(&self) {
+        let mut chars = ['-'; 64];
+
+        self.check_integrity().unwrap();
+
+        self.fill_chars(&mut chars, self.sets[Side::White][Piece::Pawn],   '♟');
+        self.fill_chars(&mut chars, self.sets[Side::White][Piece::Rook],   '♜');
+        self.fill_chars(&mut chars, self.sets[Side::White][Piece::Knight], '♞');
+        self.fill_chars(&mut chars, self.sets[Side::White][Piece::Bishop], '♝');
+        self.fill_chars(&mut chars, self.sets[Side::White][Piece::Queen],  '♛');
+        self.fill_chars(&mut chars, self.sets[Side::White][Piece::King],   '♚');
+        self.fill_chars(&mut chars, self.sets[Side::Black][Piece::Pawn],   '♙');
+        self.fill_chars(&mut chars, self.sets[Side::Black][Piece::Rook],   '♖');
+        self.fill_chars(&mut chars, self.sets[Side::Black][Piece::Knight], '♘');
+        self.fill_chars(&mut chars, self.sets[Side::Black][Piece::Bishop], '♗');
+        self.fill_chars(&mut chars, self.sets[Side::Black][Piece::Queen],  '♕');
+        self.fill_chars(&mut chars, self.sets[Side::Black][Piece::King],   '♔');
+
+        for rank in (0..8).rev() {
+            print!("{} ", rank+1);
+
+            for file in 0..8 {
+                print!("{} ", chars[rank*8+file]);
+            }
+
+            print!("\n");
+        }
+
+        print!("  ");
+
+        let file_names = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+
+        for file in 0..8 {
+            print!("{} ", file_names[file]);
+        }
+
+        print!("\n");
+    }
+
+    pub fn occupied(&self) -> u64 {
+        self.sets.iter().fold(0, |acc, x| acc | x.occupied())
+    }
+
+    pub fn empty(&self) -> u64 {
+        !self.occupied()
+    }
+
+    fn white_pawn_single_moves(&self, from: Position) -> u64 {
+        let bb = from.bb();
+
+        let push = (bb << 8) & self.empty();
+        let left_capture  = (bb << 7) & self.sets[Side::Black].occupied() & !FILE_H;
+        let right_capture = (bb << 9) & self.sets[Side::Black].occupied() & !FILE_A;
+
+        push | left_capture | right_capture
+    }
+
+    fn black_pawn_single_moves(&self, from: Position) -> u64 {
+        let bb = from.bb();
+
+        let push = (bb >> 8) & self.empty();
+        let left_capture  = (bb >> 9) & self.sets[Side::White].occupied() & !FILE_H;
+        let right_capture = (bb >> 7) & self.sets[Side::White].occupied() & !FILE_A;
+
+        push | left_capture | right_capture
+    }
+
+    fn white_pawn_double_push(&self, from: Position) -> u64 {
+        let bb = from.bb();
+        let single = (bb << 8) & self.empty() & RANK_3;
+        (single << 8) & self.empty()
+    }
+
+    fn black_pawn_double_push(&self, from: Position) -> u64 {
+        let bb = from.bb();
+        let single = (bb >> 8) & self.empty() & RANK_6;
+        (single >> 8) & self.empty()
+    }
+
+    pub fn generate_moves(&self, side: Side, moves: &mut Vec<Move>) {
+        moves.clear();
+
+        iter_bb(self.sets[side][Piece::Pawn], |from|{
+            let (single, double, rank_mask) = match side {
+                Side::White => (self.white_pawn_single_moves(from), self.white_pawn_double_push(from), RANK_8),
+                Side::Black => (self.black_pawn_single_moves(from), self.black_pawn_double_push(from), RANK_1),
+            };
+
+            let non_promotion = single & (!rank_mask);
+
+            iter_bb(non_promotion, |to| {
+                moves.push(Move{from, to, piece: Piece::Pawn, flags: 0, promotion: None});
+            });
+
+            let promotion = single & rank_mask;
+
+            iter_bb(promotion, |to| {
+                moves.push(Move{from, to, piece: Piece::Pawn, flags: 0, promotion: Some(Piece::Bishop)});
+                moves.push(Move{from, to, piece: Piece::Pawn, flags: 0, promotion: Some(Piece::Rook)});
+                moves.push(Move{from, to, piece: Piece::Pawn, flags: 0, promotion: Some(Piece::Queen)});
+                moves.push(Move{from, to, piece: Piece::Pawn, flags: 0, promotion: Some(Piece::Knight)});
+            });
+
+            iter_bb(double, |to| {
+                moves.push(Move{from, to, piece: Piece::Pawn, flags: MOVE_FLAG_DOUBLE_PUSH, promotion: None});
+            });
+        });
+    }
+
+    pub fn execute(&self, side: Side, m: &Move) -> Board {
+        let mut b = Board {
+            sets: self.sets
+        };
+
+        b.sets[side][m.piece].remove_piece(m.from);
+
+        if let Some(captured_piece) = b.piece_at(m.to) {
+            b.sets[side.other()][captured_piece].remove_piece(m.to);
+        }
+
+        if let Some(prom) = m.promotion {
+            b.sets[side][prom].add_piece(m.to);
+        }
+        else {
+            b.sets[side][m.piece].add_piece(m.to);
+        }
+
+        b
+    }
+}
+
+pub fn name_moves<'a>(board: &Board, all_moves: &'a Vec<Move>) -> HashMap<String, &'a Move> {
+    let mut positions = HashMap::<Position, HashMap<Piece, Vec<&Move>>>::new();
+    
+    for m in all_moves {
+        positions.entry(m.to).or_default().entry(m.piece).or_default().push(m);
+    }
+
+    let mut result = HashMap::new();
+
+    for (pos, pieces) in positions {
+        let is_capture = board.piece_at(pos).is_some();
+
+        for (piece, moves) in pieces {
+            match piece {
+                Piece::Pawn => { // pawns are special cases
+                    for m in moves {
+                        let capture = if is_capture {
+                            format!("{}x", m.from.file())
+                        }
+                        else {
+                            "".to_string()
+                        };
+
+                        let promotion = if let Some(prom) = m.promotion {
+                            format!("={}",prom.alg())
+                        }
+                        else {
+                            "".to_string()
+                        };
+
+                        let name = format!("{}{}{}{}", capture, m.to.file(), m.to.rank(), promotion);
+                        result.insert(name, m);
+                    }
+                }
+
+                _ => {
+                    let capture = if is_capture {
+                        "x"
+                    }
+                    else {
+                        ""
+                    };
+
+                    for (i, m) in moves.iter().enumerate() {
+                        let others = moves.iter().enumerate().filter(|(j,_)|*j != i);
+
+                        let need_file = others.clone().any(|(_, n)|{
+                            m.from.file() != n.from.file()
+                        });
+
+                        let need_rank = others.clone().any(|(_, n)|{
+                            m.from.file() == n.from.file() &&
+                            m.from.rank() != n.from.rank()
+                        });
+
+                        let disambig_file = if need_file { format!("{}", m.from.file()) } else { "".to_string() };
+                        let disambig_rank = if need_rank { format!("{}", m.from.rank()) } else { "".to_string() };
+
+                        let name = format!("{}{}{}{}{}{}", piece.alg(), disambig_file, disambig_rank, capture, pos.file(), pos.rank());
+
+                        if result.insert(name, m).is_some() {
+                            panic!("disambiguation does NOT work!!");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    result
+}
