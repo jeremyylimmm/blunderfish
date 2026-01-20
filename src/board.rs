@@ -53,8 +53,8 @@ impl std::cmp::Eq for Piece {
 }
 
 #[derive(Copy, Clone, Hash, PartialEq)]
-struct Position {
-    index: u8
+pub struct Position {
+    pub index: u8
 }
 
 impl std::cmp::Eq for Position {
@@ -333,6 +333,23 @@ impl Board {
         (single >> 8) & self.empty()
     }
 
+    pub fn king_moves(&self, side: Side, from: Position) -> u64 {
+        let bb = from.bb();
+
+        let right    = (bb << 1) & !FILE_A;
+        let left     = (bb >> 1) & !FILE_H;
+        let up       = bb << 8;
+        let down     = bb >> 8;
+        let left_up  = (bb << 7) & !FILE_H;
+        let right_up = (bb << 9) & !FILE_A;
+        let left_down     = (bb >> 9) & !FILE_H;
+        let right_down     = (bb >> 7) & !FILE_A;
+
+        let all = right | left | up | down | left_up | right_up | left_down | right_down;
+
+        all & !self.sets[side].occupied()
+    }
+
     pub fn generate_moves(&self, side: Side, moves: &mut Vec<Move>) {
         moves.clear();
 
@@ -363,6 +380,12 @@ impl Board {
 
             iter_bb(en_passant, |to| {
                 moves.push(Move{from, to, piece: Piece::Pawn, kind: MoveKind::EnPassant});
+            });
+        });
+
+        iter_bb(self.sets[side][Piece::King], |from|{ // realistically there should only be one king but whatever
+            iter_bb(self.king_moves(side, from), |to| {
+                moves.push(Move{from, to, piece: Piece::King, kind: MoveKind::Normal});
             });
         });
     }

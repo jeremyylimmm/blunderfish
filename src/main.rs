@@ -4,7 +4,7 @@ use board::*;
 
 fn main() {
     let mut b = Board::new();
-    b.sets[Side::Black][Piece::Queen] = 0;
+    //b.sets[Side::Black][Piece::Queen] = 0;
 
     let mut side = Side::White;
     let mut moves = vec![];
@@ -41,4 +41,14 @@ fn main() {
 
         side = side.other();
     }
+
+    /*
+    for i in 0..64 {
+        let mut b = Board::new();
+        b.clear();
+        b.sets[Side::White][Piece::King] = 1u64 << i;
+        b.sets[Side::Black][Piece::Pawn] = b.king_moves(Side::White, Position{index:i as _});
+        b.dump();
+    }
+    */
 }
