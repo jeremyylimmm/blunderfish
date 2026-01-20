@@ -388,6 +388,10 @@ impl Board {
         moves & !self.sets[side].occupied()
     }
 
+    pub fn queen_moves(&self, side: Side, from: Position) -> u64 {
+        self.bishop_moves(side, from) | self.rook_moves(side, from)
+    }
+
     pub fn generate_moves(&self, side: Side, moves: &mut Vec<Move>) {
         moves.clear();
 
@@ -506,6 +510,17 @@ impl Board {
                     from,
                     to,
                     piece: Piece::Bishop,
+                    kind: MoveKind::Normal,
+                });
+            });
+        });
+
+        iter_bb(self.sets[side][Piece::Queen], |from| {
+            iter_bb(self.queen_moves(side, from), |to| {
+                moves.push(Move {
+                    from,
+                    to,
+                    piece: Piece::Queen,
                     kind: MoveKind::Normal,
                 });
             });
