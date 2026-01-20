@@ -75,7 +75,8 @@ impl Position {
 }
 
 pub struct Board {
-    pub sets: [[u64; 6]; 2]
+    pub sets: [[u64; 6]; 2],
+    pub en_passant_mask: [u64;2]
 }
 
 trait Bitboard {
@@ -140,21 +141,20 @@ pub const RANK_6: u64 = 0x0000ff0000000000;
 pub const RANK_1: u64 = 0x00000000000000ff;
 pub const RANK_8: u64 = 0xff00000000000000;
 
-pub const MOVE_FLAG_DOUBLE_PUSH: u16 = 0b00000001;
+#[derive(Copy, Clone)]
+pub enum MoveKind {
+    Normal,
+    DoublePush,
+    EnPassant,
+    Promotion(Piece)
+}
 
 #[derive(Copy, Clone)]
 pub struct Move {
     from: Position,
     to: Position,
     piece: Piece,
-    flags: u16,
-    promotion: Option<Piece>,
-}
-
-impl Move {
-    fn is_double_push(&self) -> bool {
-        (self.flags & MOVE_FLAG_DOUBLE_PUSH) != 0
-    }
+    kind: MoveKind,
 }
 
 fn iter_bb<F: FnMut(Position)>(mut bb: u64, mut f: F) {
@@ -185,7 +185,8 @@ impl Board {
                     0x0800000000000000,
                     0x1000000000000000,
                 ]
-            ]
+            ],
+            en_passant_mask: [0;2]
         }
     }
 
@@ -302,6 +303,24 @@ impl Board {
         push | left_capture | right_capture
     }
 
+    fn white_en_passant(&self, from: Position) -> u64 {
+        let bb = from.bb();
+
+        let left_capture  = (bb << 7) & self.en_passant_mask[Side::White as usize] & !FILE_H;
+        let right_capture = (bb << 9) & self.en_passant_mask[Side::White as usize] & !FILE_A;
+
+        left_capture | right_capture
+    }
+
+    fn black_en_passant(&self, from: Position) -> u64 {
+        let bb = from.bb();
+
+        let left_capture  = (bb >> 9) & self.en_passant_mask[Side::Black as usize] & !FILE_H;
+        let right_capture = (bb >> 7) & self.en_passant_mask[Side::Black as usize] & !FILE_A;
+
+        left_capture | right_capture
+    }
+
     fn white_pawn_double_push(&self, from: Position) -> u64 {
         let bb = from.bb();
         let single = (bb << 8) & self.empty() & RANK_3;
@@ -318,48 +337,70 @@ impl Board {
         moves.clear();
 
         iter_bb(self.sets[side][Piece::Pawn], |from|{
-            let (single, double, rank_mask) = match side {
-                Side::White => (self.white_pawn_single_moves(from), self.white_pawn_double_push(from), RANK_8),
-                Side::Black => (self.black_pawn_single_moves(from), self.black_pawn_double_push(from), RANK_1),
+            let (single, double, en_passant, rank_mask) = match side {
+                Side::White => (self.white_pawn_single_moves(from), self.white_pawn_double_push(from), self.white_en_passant(from), RANK_8),
+                Side::Black => (self.black_pawn_single_moves(from), self.black_pawn_double_push(from), self.black_en_passant(from), RANK_1),
             };
 
             let non_promotion = single & (!rank_mask);
 
             iter_bb(non_promotion, |to| {
-                moves.push(Move{from, to, piece: Piece::Pawn, flags: 0, promotion: None});
+                moves.push(Move{from, to, piece: Piece::Pawn, kind: MoveKind::Normal});
             });
 
             let promotion = single & rank_mask;
 
             iter_bb(promotion, |to| {
-                moves.push(Move{from, to, piece: Piece::Pawn, flags: 0, promotion: Some(Piece::Bishop)});
-                moves.push(Move{from, to, piece: Piece::Pawn, flags: 0, promotion: Some(Piece::Rook)});
-                moves.push(Move{from, to, piece: Piece::Pawn, flags: 0, promotion: Some(Piece::Queen)});
-                moves.push(Move{from, to, piece: Piece::Pawn, flags: 0, promotion: Some(Piece::Knight)});
+                moves.push(Move{from, to, piece: Piece::Pawn, kind: MoveKind::Promotion(Piece::Bishop)});
+                moves.push(Move{from, to, piece: Piece::Pawn, kind: MoveKind::Promotion(Piece::Rook)});
+                moves.push(Move{from, to, piece: Piece::Pawn, kind: MoveKind::Promotion(Piece::Queen)});
+                moves.push(Move{from, to, piece: Piece::Pawn, kind: MoveKind::Promotion(Piece::Knight)});
             });
 
             iter_bb(double, |to| {
-                moves.push(Move{from, to, piece: Piece::Pawn, flags: MOVE_FLAG_DOUBLE_PUSH, promotion: None});
+                moves.push(Move{from, to, piece: Piece::Pawn, kind: MoveKind::DoublePush});
+            });
+
+            iter_bb(en_passant, |to| {
+                moves.push(Move{from, to, piece: Piece::Pawn, kind: MoveKind::EnPassant});
             });
         });
     }
 
     pub fn execute(&self, side: Side, m: &Move) -> Board {
         let mut b = Board {
-            sets: self.sets
+            sets: self.sets,
+            en_passant_mask: [0;2]
         };
 
         b.sets[side][m.piece].remove_piece(m.from);
+        
+        let capture_loc = if matches!(m.kind, MoveKind::EnPassant) {
+            match side {
+                Side::White => Position { index:m.to.index - 8 },
+                Side::Black => Position { index:m.to.index + 8 },
+            }
+        }
+        else {
+            m.to
+        };
 
-        if let Some(captured_piece) = b.piece_at(m.to) {
-            b.sets[side.other()][captured_piece].remove_piece(m.to);
+        if let Some(captured_piece) = b.piece_at(capture_loc) {
+            b.sets[side.other()][captured_piece].remove_piece(capture_loc);
         }
 
-        if let Some(prom) = m.promotion {
+        if let MoveKind::Promotion(prom) = m.kind {
             b.sets[side][prom].add_piece(m.to);
         }
         else {
             b.sets[side][m.piece].add_piece(m.to);
+        }
+
+        if matches!(m.kind, MoveKind::DoublePush) {
+            b.en_passant_mask[side.other() as usize] = match side {
+                Side::White => m.to.bb() >> 8,
+                Side::Black => m.to.bb() << 8,
+            }
         }
 
         b
@@ -382,21 +423,21 @@ pub fn name_moves<'a>(board: &Board, all_moves: &'a Vec<Move>) -> HashMap<String
             match piece {
                 Piece::Pawn => { // pawns are special cases
                     for m in moves {
-                        let capture = if is_capture {
+                        let capture = if is_capture || matches!(m.kind, MoveKind::EnPassant) {
                             format!("{}x", m.from.file())
                         }
                         else {
                             "".to_string()
                         };
 
-                        let promotion = if let Some(prom) = m.promotion {
-                            format!("={}",prom.alg())
-                        }
-                        else {
-                            "".to_string()
+                        let suffix = match m.kind {
+                            MoveKind::Promotion(prom) => {
+                                format!("={}",prom.alg())
+                            }
+                            _ => "".to_string()
                         };
 
-                        let name = format!("{}{}{}{}", capture, m.to.file(), m.to.rank(), promotion);
+                        let name = format!("{}{}{}{}", capture, m.to.file(), m.to.rank(), suffix);
                         result.insert(name, m);
                     }
                 }
