@@ -134,12 +134,14 @@ impl std::ops::IndexMut<Side> for [[u64;6]; 2] {
     }
 }
 
-pub const FILE_A: u64 = 0x0101010101010101;
-pub const FILE_H: u64 = 0x8080808080808080;
-pub const RANK_3: u64 = 0x0000000000ff0000;
-pub const RANK_6: u64 = 0x0000ff0000000000;
-pub const RANK_1: u64 = 0x00000000000000ff;
-pub const RANK_8: u64 = 0xff00000000000000;
+pub const FILE_A: u64  = 0x0101010101010101;
+pub const FILE_H: u64  = 0x8080808080808080;
+pub const FILE_GH: u64 = 0xc0c0c0c0c0c0c0c0;
+pub const FILE_AB: u64 = 0x0303030303030303;
+pub const RANK_3: u64  = 0x0000000000ff0000;
+pub const RANK_6: u64  = 0x0000ff0000000000;
+pub const RANK_1: u64  = 0x00000000000000ff;
+pub const RANK_8: u64  = 0xff00000000000000;
 
 #[derive(Copy, Clone)]
 pub enum MoveKind {
@@ -350,6 +352,23 @@ impl Board {
         all & !self.sets[side].occupied()
     }
 
+    pub fn knight_moves(&self, side: Side, from: Position) -> u64 {
+        let bb = from.bb();
+
+        let m1 = (bb << 6)  & !FILE_GH;
+        let m2 = (bb << 15) & !FILE_H;
+        let m3 = (bb << 17) & !FILE_A;
+        let m4 = (bb << 10) & !FILE_AB;
+        let m5 = (bb >> 6)  & !FILE_AB;
+        let m6 = (bb >> 15) & !FILE_A;
+        let m7 = (bb >> 17) & !FILE_H;
+        let m8 = (bb >> 10) & !FILE_GH;
+
+        let all = m1 | m2 | m3 | m4 | m5 | m6 | m7 | m8;
+
+        all & !self.sets[side].occupied()
+    }
+
     pub fn generate_moves(&self, side: Side, moves: &mut Vec<Move>) {
         moves.clear();
 
@@ -386,6 +405,12 @@ impl Board {
         iter_bb(self.sets[side][Piece::King], |from|{ // realistically there should only be one king but whatever
             iter_bb(self.king_moves(side, from), |to| {
                 moves.push(Move{from, to, piece: Piece::King, kind: MoveKind::Normal});
+            });
+        });
+
+        iter_bb(self.sets[side][Piece::Knight], |from|{
+            iter_bb(self.knight_moves(side, from), |to| {
+                moves.push(Move{from, to, piece: Piece::Knight, kind: MoveKind::Normal});
             });
         });
     }
