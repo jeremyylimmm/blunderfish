@@ -142,11 +142,13 @@ pub const RANK_1: u64 = 0x00000000000000ff;
 pub const RANK_8: u64 = 0xff00000000000000;
 
 use std::sync::LazyLock;
-pub static ROOK_TABLE: LazyLock<MagicTable> =
-    LazyLock::new(|| MagicTable::generate(gen_mask_rook, gen_moves_rook_sliding));
+
+pub static ROOK_TABLE: LazyLock<MagicTable> = LazyLock::new(|| MagicTable::generate(gen_mask_rook, gen_moves_rook_sliding));
+pub static BISHOP_TABLE: LazyLock<MagicTable> = LazyLock::new(|| MagicTable::generate(gen_mask_bishop, gen_moves_bishop_sliding));
 
 pub fn generate_tables() {
     LazyLock::force(&ROOK_TABLE);
+    LazyLock::force(&BISHOP_TABLE);
 }
 
 #[derive(Copy, Clone)]
@@ -377,10 +379,12 @@ impl Board {
     }
 
     pub fn rook_moves(&self, side: Side, from: Position) -> u64 {
-        let sq = from.index as usize;
-        let blockers = self.occupied() & (!from.bb()) & ROOK_TABLE.mask[sq];
-        let index = (blockers.wrapping_mul(ROOK_TABLE.magic[sq])) >> ROOK_TABLE.shift[sq];
-        let moves = ROOK_TABLE.tables[sq][index as usize];
+        let moves = ROOK_TABLE.lookup(from, self.occupied());
+        moves & !self.sets[side].occupied()
+    }
+
+    pub fn bishop_moves(&self, side: Side, from: Position) -> u64 {
+        let moves = BISHOP_TABLE.lookup(from, self.occupied());
         moves & !self.sets[side].occupied()
     }
 
@@ -491,6 +495,17 @@ impl Board {
                     from,
                     to,
                     piece: Piece::Rook,
+                    kind: MoveKind::Normal,
+                });
+            });
+        });
+
+        iter_bb(self.sets[side][Piece::Bishop], |from| {
+            iter_bb(self.bishop_moves(side, from), |to| {
+                moves.push(Move {
+                    from,
+                    to,
+                    piece: Piece::Bishop,
                     kind: MoveKind::Normal,
                 });
             });
@@ -655,56 +670,16 @@ impl RNG {
     }
 }
 
-pub fn gen_moves_rook_sliding(pos: usize, blockers: u64) -> u64 {
-    let rank = pos / 8;
-    let file = pos % 8;
-
+fn slide<T: Fn(u64)->u64>(pos: usize, blockers: u64, transform: T) -> u64 {
     let mut result = 0;
+    let mut bb = 1u64 << pos;
 
-    // left
-    for f in (0..file).rev() {
-        let pos = rank * 8 + f;
-        let bb = 1u64 << pos;
-
-        result |= bb;
-
-        if (blockers & bb) != 0 {
-            break;
-        }
-    }
-
-    // right
-    for f in (file + 1)..8 {
-        let pos = rank * 8 + f;
-        let bb = 1u64 << pos;
+    while bb > 0 {
+        bb = transform(bb);
 
         result |= bb;
-
-        if (blockers & bb) != 0 {
-            break;
-        }
-    }
-
-    // down
-    for r in (0..rank).rev() {
-        let pos = r * 8 + file;
-        let bb = 1u64 << pos;
-
-        result |= bb;
-
-        if (blockers & bb) != 0 {
-            break;
-        }
-    }
-
-    // up
-    for r in (rank + 1)..8 {
-        let pos = r * 8 + file;
-        let bb = 1u64 << pos;
-
-        result |= bb;
-
-        if (blockers & bb) != 0 {
+        
+        if (bb & blockers) != 0 {
             break;
         }
     }
@@ -712,15 +687,59 @@ pub fn gen_moves_rook_sliding(pos: usize, blockers: u64) -> u64 {
     result
 }
 
+pub fn gen_moves_bishop_sliding(pos: usize, blockers: u64) -> u64 {
+    let mut result = 0;
+
+    result |= slide(pos, blockers, |bb| (bb<<7) & !FILE_H);
+    result |= slide(pos, blockers, |bb| (bb<<9) & !FILE_A);
+    result |= slide(pos, blockers, |bb| (bb>>7) & !FILE_A);
+    result |= slide(pos, blockers, |bb| (bb>>9) & !FILE_H);
+
+    result
+}
+
+pub fn gen_mask_bishop(sq: usize) -> u64 {
+    let mut result = 0;
+
+    result |= slide(sq, 0, |bb| (bb<<7) & !FILE_H) & !(RANK_8|FILE_A);
+    result |= slide(sq, 0, |bb| (bb<<9) & !FILE_A) & !(RANK_8|FILE_H);
+    result |= slide(sq, 0, |bb| (bb>>7) & !FILE_A) & !(RANK_1|FILE_H);
+    result |= slide(sq, 0, |bb| (bb>>9) & !FILE_H) & !(RANK_1|FILE_A);
+
+    assert!((result & (1u64 << sq)) == 0);
+    result
+}
+
+pub fn gen_moves_rook_sliding(pos: usize, blockers: u64) -> u64 {
+    let mut result = 0;
+
+    let rank = pos/8;
+
+    result |= slide(pos, blockers, |bb|(bb >> 1) & rank_mask(rank));
+    result |= slide(pos, blockers, |bb|(bb << 1) & rank_mask(rank));
+    result |= slide(pos, blockers, |bb|bb << 8);
+    result |= slide(pos, blockers, |bb|bb >> 8);
+
+    result
+}
+
+fn rank_mask(rank: usize) -> u64 {
+    0xffu64 << (rank*8)
+}
+
+fn file_mask(file: usize) -> u64 {
+    let col = 1u64 << file;
+    col | col << 8 | col << 16 | col << 24 | col << 32 | col << 40 | col << 48 | col << 56
+}
+
 pub fn gen_mask_rook(sq: usize) -> u64 {
     let rank = sq / 8;
     let file = sq % 8;
 
-    let rank_mask = (0xffu64 << (rank*8)) & !(FILE_A | FILE_H);
-    let col = 1u64 << file;
-    let file_mask = (col | col << 8 | col << 16 | col << 24 | col << 32 | col << 40 | col << 48 | col << 56) & !(RANK_1 | RANK_8);
+    let r = rank_mask(rank) & !(FILE_A | FILE_H);
+    let f = file_mask(file) & !(RANK_1 | RANK_8);
 
-    (rank_mask | file_mask) & !(1u64 << sq)
+    (r | f) & !(1u64 << sq)
 }
 
 impl MagicTable {
@@ -773,6 +792,13 @@ impl MagicTable {
             mask,
             tables,
         }
+    }
+
+    fn lookup(&self, from: Position, occupied: u64) -> u64 {
+        let sq = from.index as usize;
+        let blockers = occupied & self.mask[sq];
+        let index = (blockers.wrapping_mul(self.magic[sq])) >> self.shift[sq];
+        self.tables[sq][index as usize]
     }
 
     fn find_magic_number(mask: u64, relevant_bits: u32) -> u64 {

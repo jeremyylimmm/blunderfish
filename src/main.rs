@@ -3,6 +3,7 @@ mod board;
 use board::*;
 
 fn main() {
+    println!("Generating tables...");
     generate_tables();
     println!("Tables generated.");
 
@@ -49,8 +50,8 @@ fn main() {
     for i in 0..64 {
         let mut b = Board::new();
         b.clear();
-        b.sets[Side::White][Piece::Rook] = 1u64 << i;
-        b.sets[Side::Black][Piece::Pawn] = ROOK_TABLE.mask[i];
+        b.sets[Side::White][Piece::Bishop] = 1u64 << i;
+        b.sets[Side::Black][Piece::Pawn] = gen_mask_bishop(i);
         b.dump();
     }
     */
