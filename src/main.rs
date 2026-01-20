@@ -3,6 +3,9 @@ mod board;
 use board::*;
 
 fn main() {
+    generate_tables();
+    println!("Tables generated.");
+
     let mut b = Board::new();
     //b.sets[Side::Black][Piece::Queen] = 0;
 
@@ -46,8 +49,8 @@ fn main() {
     for i in 0..64 {
         let mut b = Board::new();
         b.clear();
-        b.sets[Side::White][Piece::Knight] = 1u64 << i;
-        b.sets[Side::Black][Piece::Pawn] = b.knight_moves(Side::White, Position{index:i as _});
+        b.sets[Side::White][Piece::Rook] = 1u64 << i;
+        b.sets[Side::Black][Piece::Pawn] = ROOK_TABLE.mask[i];
         b.dump();
     }
     */

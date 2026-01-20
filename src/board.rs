@@ -3,7 +3,7 @@ use std::collections::HashMap;
 #[derive(Copy, Clone)]
 pub enum Side {
     White,
-    Black
+    Black,
 }
 
 impl Side {
@@ -28,16 +28,16 @@ pub enum Piece {
 impl Piece {
     fn alg(&self) -> &'static str {
         match self {
-            Self::Pawn   => "",
-            Self::Rook   => "R",
+            Self::Pawn => "",
+            Self::Rook => "R",
             Self::Knight => "N",
             Self::Bishop => "B",
-            Self::Queen  => "Q",
-            Self::King   => "K",
+            Self::Queen => "Q",
+            Self::King => "K",
         }
     }
 
-    fn iter() -> [Piece;6] {
+    fn iter() -> [Piece; 6] {
         [
             Piece::Pawn,
             Piece::Rook,
@@ -49,16 +49,14 @@ impl Piece {
     }
 }
 
-impl std::cmp::Eq for Piece {
-}
+impl std::cmp::Eq for Piece {}
 
 #[derive(Copy, Clone, Hash, PartialEq)]
 pub struct Position {
-    pub index: u8
+    pub index: u8,
 }
 
-impl std::cmp::Eq for Position {
-}
+impl std::cmp::Eq for Position {}
 
 impl Position {
     fn bb(&self) -> u64 {
@@ -76,7 +74,7 @@ impl Position {
 
 pub struct Board {
     pub sets: [[u64; 6]; 2],
-    pub en_passant_mask: [u64;2]
+    pub en_passant_mask: [u64; 2],
 }
 
 trait Bitboard {
@@ -100,13 +98,13 @@ trait Set {
     fn occupied(&self) -> u64;
 }
 
-impl Set for [u64;6] {
+impl Set for [u64; 6] {
     fn occupied(&self) -> u64 {
         self.iter().copied().fold(0, |acc, x| acc | x)
     }
 }
 
-impl std::ops::Index<Piece> for [u64;6] {
+impl std::ops::Index<Piece> for [u64; 6] {
     type Output = u64;
 
     fn index(&self, i: Piece) -> &Self::Output {
@@ -114,41 +112,49 @@ impl std::ops::Index<Piece> for [u64;6] {
     }
 }
 
-impl std::ops::IndexMut<Piece> for [u64;6] {
+impl std::ops::IndexMut<Piece> for [u64; 6] {
     fn index_mut(&mut self, i: Piece) -> &mut u64 {
         &mut self[i as usize]
     }
 }
 
-impl std::ops::Index<Side> for [[u64;6]; 2] {
-    type Output = [u64;6];
+impl std::ops::Index<Side> for [[u64; 6]; 2] {
+    type Output = [u64; 6];
 
     fn index(&self, i: Side) -> &Self::Output {
         &self[i as usize]
     }
 }
 
-impl std::ops::IndexMut<Side> for [[u64;6]; 2] {
-    fn index_mut(&mut self, i: Side) -> &mut [u64;6] {
+impl std::ops::IndexMut<Side> for [[u64; 6]; 2] {
+    fn index_mut(&mut self, i: Side) -> &mut [u64; 6] {
         &mut self[i as usize]
     }
 }
 
-pub const FILE_A: u64  = 0x0101010101010101;
-pub const FILE_H: u64  = 0x8080808080808080;
+pub const FILE_A: u64 = 0x0101010101010101;
+pub const FILE_H: u64 = 0x8080808080808080;
 pub const FILE_GH: u64 = 0xc0c0c0c0c0c0c0c0;
 pub const FILE_AB: u64 = 0x0303030303030303;
-pub const RANK_3: u64  = 0x0000000000ff0000;
-pub const RANK_6: u64  = 0x0000ff0000000000;
-pub const RANK_1: u64  = 0x00000000000000ff;
-pub const RANK_8: u64  = 0xff00000000000000;
+pub const RANK_3: u64 = 0x0000000000ff0000;
+pub const RANK_6: u64 = 0x0000ff0000000000;
+pub const RANK_1: u64 = 0x00000000000000ff;
+pub const RANK_8: u64 = 0xff00000000000000;
+
+use std::sync::LazyLock;
+pub static ROOK_TABLE: LazyLock<MagicTable> =
+    LazyLock::new(|| MagicTable::generate(gen_mask_rook, gen_moves_rook_sliding));
+
+pub fn generate_tables() {
+    LazyLock::force(&ROOK_TABLE);
+}
 
 #[derive(Copy, Clone)]
 pub enum MoveKind {
     Normal,
     DoublePush,
     EnPassant,
-    Promotion(Piece)
+    Promotion(Piece),
 }
 
 #[derive(Copy, Clone)]
@@ -161,7 +167,9 @@ pub struct Move {
 
 fn iter_bb<F: FnMut(Position)>(mut bb: u64, mut f: F) {
     while bb > 0 {
-        let i = Position {index:bb.trailing_zeros() as _ };
+        let i = Position {
+            index: bb.trailing_zeros() as _,
+        };
         f(i);
         bb &= bb - 1;
     }
@@ -186,17 +194,17 @@ impl Board {
                     0x2400000000000000,
                     0x0800000000000000,
                     0x1000000000000000,
-                ]
+                ],
             ],
-            en_passant_mask: [0;2]
+            en_passant_mask: [0; 2],
         }
     }
 
     pub fn clear(&mut self) {
-        self.sets = [[0;_];_];
+        self.sets = [[0; _]; _];
     }
 
-    fn fill_chars(&self, chars: &mut [char;64], bb: u64, which: char) {
+    fn fill_chars(&self, chars: &mut [char; 64], bb: u64, which: char) {
         for i in 0..64 {
             if ((bb >> i) & 1) != 0 {
                 chars[i] = which;
@@ -219,11 +227,10 @@ impl Board {
     pub fn check_integrity(&self) -> Result<(), &'static str> {
         let mut seen = 0u64;
 
-        let mut check = |x:u64| {
+        let mut check = |x: u64| {
             if (seen & x) != 0 {
                 Err("bit boards clash")
-            }
-            else {
+            } else {
                 seen |= x;
                 Ok(())
             }
@@ -243,24 +250,24 @@ impl Board {
 
         self.check_integrity().unwrap();
 
-        self.fill_chars(&mut chars, self.sets[Side::White][Piece::Pawn],   '♟');
-        self.fill_chars(&mut chars, self.sets[Side::White][Piece::Rook],   '♜');
+        self.fill_chars(&mut chars, self.sets[Side::White][Piece::Pawn], '♟');
+        self.fill_chars(&mut chars, self.sets[Side::White][Piece::Rook], '♜');
         self.fill_chars(&mut chars, self.sets[Side::White][Piece::Knight], '♞');
         self.fill_chars(&mut chars, self.sets[Side::White][Piece::Bishop], '♝');
-        self.fill_chars(&mut chars, self.sets[Side::White][Piece::Queen],  '♛');
-        self.fill_chars(&mut chars, self.sets[Side::White][Piece::King],   '♚');
-        self.fill_chars(&mut chars, self.sets[Side::Black][Piece::Pawn],   '♙');
-        self.fill_chars(&mut chars, self.sets[Side::Black][Piece::Rook],   '♖');
+        self.fill_chars(&mut chars, self.sets[Side::White][Piece::Queen], '♛');
+        self.fill_chars(&mut chars, self.sets[Side::White][Piece::King], '♚');
+        self.fill_chars(&mut chars, self.sets[Side::Black][Piece::Pawn], '♙');
+        self.fill_chars(&mut chars, self.sets[Side::Black][Piece::Rook], '♖');
         self.fill_chars(&mut chars, self.sets[Side::Black][Piece::Knight], '♘');
         self.fill_chars(&mut chars, self.sets[Side::Black][Piece::Bishop], '♗');
-        self.fill_chars(&mut chars, self.sets[Side::Black][Piece::Queen],  '♕');
-        self.fill_chars(&mut chars, self.sets[Side::Black][Piece::King],   '♔');
+        self.fill_chars(&mut chars, self.sets[Side::Black][Piece::Queen], '♕');
+        self.fill_chars(&mut chars, self.sets[Side::Black][Piece::King], '♔');
 
         for rank in (0..8).rev() {
-            print!("{} ", rank+1);
+            print!("{} ", rank + 1);
 
             for file in 0..8 {
-                print!("{} ", chars[rank*8+file]);
+                print!("{} ", chars[rank * 8 + file]);
             }
 
             print!("\n");
@@ -289,7 +296,7 @@ impl Board {
         let bb = from.bb();
 
         let push = (bb << 8) & self.empty();
-        let left_capture  = (bb << 7) & self.sets[Side::Black].occupied() & !FILE_H;
+        let left_capture = (bb << 7) & self.sets[Side::Black].occupied() & !FILE_H;
         let right_capture = (bb << 9) & self.sets[Side::Black].occupied() & !FILE_A;
 
         push | left_capture | right_capture
@@ -299,7 +306,7 @@ impl Board {
         let bb = from.bb();
 
         let push = (bb >> 8) & self.empty();
-        let left_capture  = (bb >> 9) & self.sets[Side::White].occupied() & !FILE_H;
+        let left_capture = (bb >> 9) & self.sets[Side::White].occupied() & !FILE_H;
         let right_capture = (bb >> 7) & self.sets[Side::White].occupied() & !FILE_A;
 
         push | left_capture | right_capture
@@ -308,7 +315,7 @@ impl Board {
     fn white_en_passant(&self, from: Position) -> u64 {
         let bb = from.bb();
 
-        let left_capture  = (bb << 7) & self.en_passant_mask[Side::White as usize] & !FILE_H;
+        let left_capture = (bb << 7) & self.en_passant_mask[Side::White as usize] & !FILE_H;
         let right_capture = (bb << 9) & self.en_passant_mask[Side::White as usize] & !FILE_A;
 
         left_capture | right_capture
@@ -317,7 +324,7 @@ impl Board {
     fn black_en_passant(&self, from: Position) -> u64 {
         let bb = from.bb();
 
-        let left_capture  = (bb >> 9) & self.en_passant_mask[Side::Black as usize] & !FILE_H;
+        let left_capture = (bb >> 9) & self.en_passant_mask[Side::Black as usize] & !FILE_H;
         let right_capture = (bb >> 7) & self.en_passant_mask[Side::Black as usize] & !FILE_A;
 
         left_capture | right_capture
@@ -338,14 +345,14 @@ impl Board {
     pub fn king_moves(&self, side: Side, from: Position) -> u64 {
         let bb = from.bb();
 
-        let right    = (bb << 1) & !FILE_A;
-        let left     = (bb >> 1) & !FILE_H;
-        let up       = bb << 8;
-        let down     = bb >> 8;
-        let left_up  = (bb << 7) & !FILE_H;
+        let right = (bb << 1) & !FILE_A;
+        let left = (bb >> 1) & !FILE_H;
+        let up = bb << 8;
+        let down = bb >> 8;
+        let left_up = (bb << 7) & !FILE_H;
         let right_up = (bb << 9) & !FILE_A;
-        let left_down     = (bb >> 9) & !FILE_H;
-        let right_down     = (bb >> 7) & !FILE_A;
+        let left_down = (bb >> 9) & !FILE_H;
+        let right_down = (bb >> 7) & !FILE_A;
 
         let all = right | left | up | down | left_up | right_up | left_down | right_down;
 
@@ -355,11 +362,11 @@ impl Board {
     pub fn knight_moves(&self, side: Side, from: Position) -> u64 {
         let bb = from.bb();
 
-        let m1 = (bb << 6)  & !FILE_GH;
+        let m1 = (bb << 6) & !FILE_GH;
         let m2 = (bb << 15) & !FILE_H;
         let m3 = (bb << 17) & !FILE_A;
         let m4 = (bb << 10) & !FILE_AB;
-        let m5 = (bb >> 6)  & !FILE_AB;
+        let m5 = (bb >> 6) & !FILE_AB;
         let m6 = (bb >> 15) & !FILE_A;
         let m7 = (bb >> 17) & !FILE_H;
         let m8 = (bb >> 10) & !FILE_GH;
@@ -369,48 +376,123 @@ impl Board {
         all & !self.sets[side].occupied()
     }
 
+    pub fn rook_moves(&self, side: Side, from: Position) -> u64 {
+        let sq = from.index as usize;
+        let blockers = self.occupied() & (!from.bb()) & ROOK_TABLE.mask[sq];
+        let index = (blockers.wrapping_mul(ROOK_TABLE.magic[sq])) >> ROOK_TABLE.shift[sq];
+        let moves = ROOK_TABLE.tables[sq][index as usize];
+        moves & !self.sets[side].occupied()
+    }
+
     pub fn generate_moves(&self, side: Side, moves: &mut Vec<Move>) {
         moves.clear();
 
-        iter_bb(self.sets[side][Piece::Pawn], |from|{
+        iter_bb(self.sets[side][Piece::Pawn], |from| {
             let (single, double, en_passant, rank_mask) = match side {
-                Side::White => (self.white_pawn_single_moves(from), self.white_pawn_double_push(from), self.white_en_passant(from), RANK_8),
-                Side::Black => (self.black_pawn_single_moves(from), self.black_pawn_double_push(from), self.black_en_passant(from), RANK_1),
+                Side::White => (
+                    self.white_pawn_single_moves(from),
+                    self.white_pawn_double_push(from),
+                    self.white_en_passant(from),
+                    RANK_8,
+                ),
+                Side::Black => (
+                    self.black_pawn_single_moves(from),
+                    self.black_pawn_double_push(from),
+                    self.black_en_passant(from),
+                    RANK_1,
+                ),
             };
 
             let non_promotion = single & (!rank_mask);
 
             iter_bb(non_promotion, |to| {
-                moves.push(Move{from, to, piece: Piece::Pawn, kind: MoveKind::Normal});
+                moves.push(Move {
+                    from,
+                    to,
+                    piece: Piece::Pawn,
+                    kind: MoveKind::Normal,
+                });
             });
 
             let promotion = single & rank_mask;
 
             iter_bb(promotion, |to| {
-                moves.push(Move{from, to, piece: Piece::Pawn, kind: MoveKind::Promotion(Piece::Bishop)});
-                moves.push(Move{from, to, piece: Piece::Pawn, kind: MoveKind::Promotion(Piece::Rook)});
-                moves.push(Move{from, to, piece: Piece::Pawn, kind: MoveKind::Promotion(Piece::Queen)});
-                moves.push(Move{from, to, piece: Piece::Pawn, kind: MoveKind::Promotion(Piece::Knight)});
+                moves.push(Move {
+                    from,
+                    to,
+                    piece: Piece::Pawn,
+                    kind: MoveKind::Promotion(Piece::Bishop),
+                });
+                moves.push(Move {
+                    from,
+                    to,
+                    piece: Piece::Pawn,
+                    kind: MoveKind::Promotion(Piece::Rook),
+                });
+                moves.push(Move {
+                    from,
+                    to,
+                    piece: Piece::Pawn,
+                    kind: MoveKind::Promotion(Piece::Queen),
+                });
+                moves.push(Move {
+                    from,
+                    to,
+                    piece: Piece::Pawn,
+                    kind: MoveKind::Promotion(Piece::Knight),
+                });
             });
 
             iter_bb(double, |to| {
-                moves.push(Move{from, to, piece: Piece::Pawn, kind: MoveKind::DoublePush});
+                moves.push(Move {
+                    from,
+                    to,
+                    piece: Piece::Pawn,
+                    kind: MoveKind::DoublePush,
+                });
             });
 
             iter_bb(en_passant, |to| {
-                moves.push(Move{from, to, piece: Piece::Pawn, kind: MoveKind::EnPassant});
+                moves.push(Move {
+                    from,
+                    to,
+                    piece: Piece::Pawn,
+                    kind: MoveKind::EnPassant,
+                });
             });
         });
 
-        iter_bb(self.sets[side][Piece::King], |from|{ // realistically there should only be one king but whatever
+        iter_bb(self.sets[side][Piece::King], |from| {
+            // realistically there should only be one king but whatever
             iter_bb(self.king_moves(side, from), |to| {
-                moves.push(Move{from, to, piece: Piece::King, kind: MoveKind::Normal});
+                moves.push(Move {
+                    from,
+                    to,
+                    piece: Piece::King,
+                    kind: MoveKind::Normal,
+                });
             });
         });
 
-        iter_bb(self.sets[side][Piece::Knight], |from|{
+        iter_bb(self.sets[side][Piece::Knight], |from| {
             iter_bb(self.knight_moves(side, from), |to| {
-                moves.push(Move{from, to, piece: Piece::Knight, kind: MoveKind::Normal});
+                moves.push(Move {
+                    from,
+                    to,
+                    piece: Piece::Knight,
+                    kind: MoveKind::Normal,
+                });
+            });
+        });
+
+        iter_bb(self.sets[side][Piece::Rook], |from| {
+            iter_bb(self.rook_moves(side, from), |to| {
+                moves.push(Move {
+                    from,
+                    to,
+                    piece: Piece::Rook,
+                    kind: MoveKind::Normal,
+                });
             });
         });
     }
@@ -418,18 +500,21 @@ impl Board {
     pub fn execute(&self, side: Side, m: &Move) -> Board {
         let mut b = Board {
             sets: self.sets,
-            en_passant_mask: [0;2]
+            en_passant_mask: [0; 2],
         };
 
         b.sets[side][m.piece].remove_piece(m.from);
-        
+
         let capture_loc = if matches!(m.kind, MoveKind::EnPassant) {
             match side {
-                Side::White => Position { index:m.to.index - 8 },
-                Side::Black => Position { index:m.to.index + 8 },
+                Side::White => Position {
+                    index: m.to.index - 8,
+                },
+                Side::Black => Position {
+                    index: m.to.index + 8,
+                },
             }
-        }
-        else {
+        } else {
             m.to
         };
 
@@ -439,8 +524,7 @@ impl Board {
 
         if let MoveKind::Promotion(prom) = m.kind {
             b.sets[side][prom].add_piece(m.to);
-        }
-        else {
+        } else {
             b.sets[side][m.piece].add_piece(m.to);
         }
 
@@ -457,9 +541,14 @@ impl Board {
 
 pub fn name_moves<'a>(board: &Board, all_moves: &'a Vec<Move>) -> HashMap<String, &'a Move> {
     let mut positions = HashMap::<Position, HashMap<Piece, Vec<&Move>>>::new();
-    
+
     for m in all_moves {
-        positions.entry(m.to).or_default().entry(m.piece).or_default().push(m);
+        positions
+            .entry(m.to)
+            .or_default()
+            .entry(m.piece)
+            .or_default()
+            .push(m);
     }
 
     let mut result = HashMap::new();
@@ -469,20 +558,20 @@ pub fn name_moves<'a>(board: &Board, all_moves: &'a Vec<Move>) -> HashMap<String
 
         for (piece, moves) in pieces {
             match piece {
-                Piece::Pawn => { // pawns are special cases
+                Piece::Pawn => {
+                    // pawns are special cases
                     for m in moves {
                         let capture = if is_capture || matches!(m.kind, MoveKind::EnPassant) {
                             format!("{}x", m.from.file())
-                        }
-                        else {
+                        } else {
                             "".to_string()
                         };
 
                         let suffix = match m.kind {
                             MoveKind::Promotion(prom) => {
-                                format!("={}",prom.alg())
+                                format!("={}", prom.alg())
                             }
-                            _ => "".to_string()
+                            _ => "".to_string(),
                         };
 
                         let name = format!("{}{}{}{}", capture, m.to.file(), m.to.rank(), suffix);
@@ -491,29 +580,37 @@ pub fn name_moves<'a>(board: &Board, all_moves: &'a Vec<Move>) -> HashMap<String
                 }
 
                 _ => {
-                    let capture = if is_capture {
-                        "x"
-                    }
-                    else {
-                        ""
-                    };
+                    let capture = if is_capture { "x" } else { "" };
 
                     for (i, m) in moves.iter().enumerate() {
-                        let others = moves.iter().enumerate().filter(|(j,_)|*j != i);
+                        let others = moves.iter().enumerate().filter(|(j, _)| *j != i);
 
-                        let need_file = others.clone().any(|(_, n)|{
-                            m.from.file() != n.from.file()
+                        let need_file = others.clone().any(|(_, n)| m.from.file() != n.from.file());
+
+                        let need_rank = others.clone().any(|(_, n)| {
+                            m.from.file() == n.from.file() && m.from.rank() != n.from.rank()
                         });
 
-                        let need_rank = others.clone().any(|(_, n)|{
-                            m.from.file() == n.from.file() &&
-                            m.from.rank() != n.from.rank()
-                        });
+                        let disambig_file = if need_file {
+                            format!("{}", m.from.file())
+                        } else {
+                            "".to_string()
+                        };
+                        let disambig_rank = if need_rank {
+                            format!("{}", m.from.rank())
+                        } else {
+                            "".to_string()
+                        };
 
-                        let disambig_file = if need_file { format!("{}", m.from.file()) } else { "".to_string() };
-                        let disambig_rank = if need_rank { format!("{}", m.from.rank()) } else { "".to_string() };
-
-                        let name = format!("{}{}{}{}{}{}", piece.alg(), disambig_file, disambig_rank, capture, pos.file(), pos.rank());
+                        let name = format!(
+                            "{}{}{}{}{}{}",
+                            piece.alg(),
+                            disambig_file,
+                            disambig_rank,
+                            capture,
+                            pos.file(),
+                            pos.rank()
+                        );
 
                         if result.insert(name, m).is_some() {
                             panic!("disambiguation does NOT work!!");
@@ -525,4 +622,191 @@ pub fn name_moves<'a>(board: &Board, all_moves: &'a Vec<Move>) -> HashMap<String
     }
 
     result
+}
+
+pub struct MagicTable {
+    pub magic: [u64; 64],
+    pub shift: [u32; 64],
+    pub mask: [u64; 64],
+    pub tables: [Vec<u64>; 64],
+}
+
+struct RNG {
+    state: u64,
+    inc: u64,
+}
+
+impl RNG {
+    fn rand32(&mut self) -> u32 {
+        let oldstate = self.state;
+        // Advance internal state
+        self.state = oldstate.overflowing_mul(6364136223846793005u64).0 + (self.inc | 1);
+        // Calculate output function (XSH RR), uses old state for max ILP
+        let xorshifted = (((oldstate >> 18u32) ^ oldstate) >> 27u32) as u32;
+        let rot = (oldstate >> 59u32) as u32;
+        (xorshifted >> rot) | (xorshifted << ((-(rot as i32)) & 31))
+    }
+
+    fn rand64(&mut self) -> u64 {
+        let a = self.rand32() as u64;
+        let b = self.rand32() as u64;
+
+        a << 32 | b
+    }
+}
+
+pub fn gen_moves_rook_sliding(pos: usize, blockers: u64) -> u64 {
+    let rank = pos / 8;
+    let file = pos % 8;
+
+    let mut result = 0;
+
+    // left
+    for f in (0..file).rev() {
+        let pos = rank * 8 + f;
+        let bb = 1u64 << pos;
+
+        result |= bb;
+
+        if (blockers & bb) != 0 {
+            break;
+        }
+    }
+
+    // right
+    for f in (file + 1)..8 {
+        let pos = rank * 8 + f;
+        let bb = 1u64 << pos;
+
+        result |= bb;
+
+        if (blockers & bb) != 0 {
+            break;
+        }
+    }
+
+    // down
+    for r in (0..rank).rev() {
+        let pos = r * 8 + file;
+        let bb = 1u64 << pos;
+
+        result |= bb;
+
+        if (blockers & bb) != 0 {
+            break;
+        }
+    }
+
+    // up
+    for r in (rank + 1)..8 {
+        let pos = r * 8 + file;
+        let bb = 1u64 << pos;
+
+        result |= bb;
+
+        if (blockers & bb) != 0 {
+            break;
+        }
+    }
+
+    result
+}
+
+pub fn gen_mask_rook(sq: usize) -> u64 {
+    let rank = sq / 8;
+    let file = sq % 8;
+
+    let rank_mask = (0xffu64 << (rank*8)) & !(FILE_A | FILE_H);
+    let col = 1u64 << file;
+    let file_mask = (col | col << 8 | col << 16 | col << 24 | col << 32 | col << 40 | col << 48 | col << 56) & !(RANK_1 | RANK_8);
+
+    (rank_mask | file_mask) & !(1u64 << sq)
+}
+
+impl MagicTable {
+    #[allow(unused)]
+    fn generate<GenMaskFn: Fn(usize) -> u64, GenMovesFn: Fn(usize, u64) -> u64>(
+        gen_mask: GenMaskFn,
+        gen_moves: GenMovesFn,
+    ) -> Self {
+        let mut magic = [0u64; _];
+        let mut shift = [0; _];
+        let mut mask = [0u64; _];
+        let mut tables = std::array::from_fn(|_| vec![]);
+
+        for sq in 0..64 {
+            mask[sq] = gen_mask(sq);
+            let relevant_bits = mask[sq].count_ones();
+
+            if relevant_bits == 0 {
+                shift[sq] = 0;
+                magic[sq] = 0;
+                tables[sq] = vec![gen_moves(sq, 0)];
+                continue;
+            }
+
+            shift[sq] = 64 - relevant_bits;
+            magic[sq] = Self::find_magic_number(mask[sq], relevant_bits);
+
+            let mut table = vec![0u64; 1 << relevant_bits];
+
+            let mut permutation = mask[sq];
+
+            loop {
+                let index = ((permutation.wrapping_mul(magic[sq])) >> shift[sq]) as usize;
+
+                table[index] = gen_moves(sq, permutation);
+
+                if permutation == 0 {
+                    break;
+                }
+
+                permutation = (permutation - 1) & mask[sq];
+            }
+
+            tables[sq] = table;
+        }
+
+        Self {
+            magic,
+            shift,
+            mask,
+            tables,
+        }
+    }
+
+    fn find_magic_number(mask: u64, relevant_bits: u32) -> u64 {
+        let mut rng = RNG { state: 67, inc: 1 };
+        let shift = 64 - relevant_bits;
+
+        loop {
+            let mut table = vec![false; 1 << relevant_bits];
+            let magic = rng.rand64() & rng.rand64() & rng.rand64();
+
+            let mut subset = mask;
+
+            let mut ok = true;
+
+            loop {
+                let index = ((subset.wrapping_mul(magic)) >> shift) as usize;
+
+                if table[index] {
+                    ok = false;
+                    break;
+                }
+
+                table[index] = true;
+
+                if subset == 0 {
+                    break;
+                }
+
+                subset = (subset - 1) & mask;
+            }
+
+            if ok {
+                return magic;
+            }
+        }
+    }
 }
